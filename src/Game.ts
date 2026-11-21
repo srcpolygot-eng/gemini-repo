@@ -11,8 +11,8 @@ import { TUNNEL_RADIUS, TunnelGenerator } from './world/TunnelGenerator';
 const BEST_SCORE_KEY = 'neon-tunnel-best-score';
 const PLAYER_ORBIT_RADIUS = TUNNEL_RADIUS - 1.35;
 const PLAYER_Z = 0;
-const BASE_SPEED = 28;
-const MAX_SPEED = 74;
+const BASE_SPEED = 50;
+const MAX_SPEED = 125;
 
 function getRequiredEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -309,12 +309,12 @@ export class Game {
       this.elapsedTime += rawDt;
 
       const active = this.powerUps.getActive();
-      const rampSpeed = Math.min(MAX_SPEED, BASE_SPEED + this.elapsedTime * 0.65);
+      const rampSpeed = Math.min(MAX_SPEED, BASE_SPEED + this.elapsedTime * 1.4);
       const effectiveSpeed = active.slowmo > 0 ? rampSpeed * 0.58 : rampSpeed;
       this.stats.speedMultiplier = effectiveSpeed / BASE_SPEED;
 
       const steerInput = this.inputManager.getSteerInput();
-      this.playerAngle += steerInput * 3.1 * rawDt;
+      this.playerAngle += steerInput * 4.6 * rawDt;
       this.syncPlayerTransform(steerInput);
 
       this.tunnel.update(effectiveSpeed, rawDt);
