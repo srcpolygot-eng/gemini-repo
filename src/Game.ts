@@ -317,7 +317,7 @@ export class Game {
       this.playerAngle += steerInput * 3.1 * rawDt;
       this.syncPlayerTransform(steerInput);
 
-      this.tunnel.update(effectiveSpeed, rawDt, steerInput);
+      this.tunnel.update(effectiveSpeed, rawDt,;
 
       const obsResult = this.obstacles.update(
         effectiveSpeed,
@@ -390,7 +390,7 @@ export class Game {
         this.updateHUD(this.powerUps.getActive());
       }
     } else {
-      this.tunnel.update(14, rawDt, 0.15);
+      this.tunnel.update(14, rawDt);
       this.syncPlayerTransform(0);
       this.sceneManager.updateCamera(
         this.playerGroup.position.x,
