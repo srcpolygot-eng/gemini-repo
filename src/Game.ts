@@ -107,8 +107,8 @@ export class Game {
     this.audio = new SynthAudio();
 
     this.shipMaterial = new THREE.MeshStandardMaterial({
-      color: this.currentTheme.shipColorHex,
-      emissive: this.currentTheme.shipEmissiveHex,
+      color: this.currentTheme.playerColorHex,
+      emissive: this.currentTheme.playerColorHex,
       emissiveIntensity: 0.75,
       roughness: 0.25,
       metalness: 0.7,
@@ -356,8 +356,8 @@ export class Game {
     this.sceneManager.applyTheme(this.currentTheme);
     this.tunnel.applyTheme(this.currentTheme);
     this.obstacles.applyTheme(this.currentTheme);
-    this.shipMaterial.color.setHex(this.currentTheme.shipColorHex);
-    this.shipMaterial.emissive.setHex(this.currentTheme.shipEmissiveHex);
+    this.shipMaterial.color.setHex(this.currentTheme.playerColorHex);
+    this.shipMaterial.emissive.setHex(this.currentTheme.playerColorHex);
     this.shipEdgeMaterial.color.setHex(this.currentTheme.ringColorHex);
     this.thrusterMaterial.color.setHex(this.currentTheme.ringColorHex);
 
@@ -429,6 +429,7 @@ export class Game {
     }
 
     const stats: RunStats = {
+      combo: this.combo, 
       score: roundedScore,
       bestScore: this.bestScore,
       distance: Math.floor(this.distance),
