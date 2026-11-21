@@ -66,13 +66,13 @@ export class ObstacleManager {
     mesh.add(outline);
   }
 
-  private disposeMesh(mesh: THREE.Mesh): void {
+  private disposeMesh(mesh: THREE.Object3D): void {
     for (const child of mesh.children) {
       if (child instanceof THREE.LineSegments) {
         child.geometry.dispose();
       }
     }
-    mesh.geometry.dispose();
+    if (mesh instanceof THREE.Mesh) { mesh.geometry.dispose(); }
   }
 
   private spawnObstacle(difficulty: number): void {
@@ -80,8 +80,8 @@ export class ObstacleManager {
     const kind: ObstacleKind = roll < 0.45 ? 'cube' : roll < 0.78 ? 'bar' : 'arc';
     const angle = Math.random() * Math.PI * 2;
     let mesh: THREE.Mesh;
-    let angularHalfWidth = 0.34;
-    let radialHalfThickness = 0.95;
+    let angularWidth = 0.34;
+    let radialDepth = 0.95;
 
     if (kind === 'cube') {
       const size = 1.55 + Math.random() * 0.65;
@@ -93,8 +93,8 @@ export class ObstacleManager {
         Math.sin(angle) * ORBIT_RADIUS,
         SPAWN_Z
       );
-      angularHalfWidth = 0.36;
-      radialHalfThickness = size * 0.6;
+      angularWidth = 0.36;
+      radialDepth = size * 0.6;
     } else if (kind === 'bar') {
       const length = 3.8 + Math.random() * 1.4;
       const geo = new THREE.BoxGeometry(length, 1.05, 1.15);
@@ -106,8 +106,8 @@ export class ObstacleManager {
         SPAWN_Z
       );
       mesh.rotation.z = angle + Math.PI / 2;
-      angularHalfWidth = 0.62;
-      radialHalfThickness = 0.9;
+      angularWidth = 0.62;
+      radialDepth = 0.9;
     } else {
       const arcSpan = Math.PI * (0.52 + Math.min(0.28, difficulty * 0.2));
       const geo = new THREE.TorusGeometry(ORBIT_RADIUS, 0.55, 8, 22, arcSpan);
@@ -115,21 +115,21 @@ export class ObstacleManager {
       this.addOutline(mesh, geo, 20);
       mesh.position.set(0, 0, SPAWN_Z);
       mesh.rotation.z = angle - arcSpan / 2;
-      angularHalfWidth = arcSpan / 2 + 0.12;
-      radialHalfThickness = 0.85;
+      angularWidth = arcSpan / 2 + 0.12;
+      radialDepth = 0.85;
     }
 
-    this.group.add(mesh);
+    mesh.userData.spinSpeed = (Math.random() - 0.5) * (0.4 + difficulty * 1.3); this.group.add(mesh);
     this.obstacles.push({
       mesh,
       kind,
       angle,
-      angularHalfWidth,
-      radialHalfThickness,
+      angularWidth,
+      radialDepth,
       z: SPAWN_Z,
-      spinSpeed: (Math.random() - 0.5) * (0.4 + difficulty * 1.3),
+      
       passed: false,
-      nearMissAwarded: false,
+      nearMissChecked: false,
     });
   }
 
@@ -161,15 +161,15 @@ export class ObstacleManager {
         obs.mesh.rotation.x += dt * 1.3;
         obs.mesh.rotation.y += dt * 1.1;
       } else if (obs.kind === 'arc') {
-        obs.angle += obs.spinSpeed * dt;
-        obs.mesh.rotation.z += obs.spinSpeed * dt;
+        obs.angle += ((obs.mesh.userData.spinSpeed as number) ?? 0) * dt;
+        obs.mesh.rotation.z += ((obs.mesh.userData.spinSpeed as number) ?? 0) * dt;
       }
 
       if (Math.abs(obs.z) < 0.95) {
         const angleDiff = normalizeAngleDiff(playerAngle, obs.angle);
         const radialDiff = Math.abs(playerRadius - ORBIT_RADIUS);
 
-        if (angleDiff < obs.angularHalfWidth && radialDiff < obs.radialHalfThickness) {
+        if (angleDiff < obs.angularWidth && radialDiff < obs.radialDepth) {
           if (shieldActive) {
             this.removeObstacle(i);
             passedCount += 1;
@@ -177,11 +177,11 @@ export class ObstacleManager {
           }
           hit = true;
         } else if (
-          !obs.nearMissAwarded &&
-          angleDiff < obs.angularHalfWidth + 0.34 &&
-          radialDiff < obs.radialHalfThickness + 0.6
+          !obs.nearMissChecked &&
+          angleDiff < obs.angularWidth + 0.34 &&
+          radialDiff < obs.radialDepth + 0.6
         ) {
-          obs.nearMissAwarded = true;
+          obs.nearMissChecked = true;
           nearMiss = true;
         }
       }
