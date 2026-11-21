@@ -26,7 +26,7 @@ export class SceneManager {
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(72, width / height, 0.1, 220);
+    this.camera = new THREE.PerspectiveCamera(74, width / height, 0.1, 220);
     this.camera.position.set(0, 0.4, 5.5);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -34,7 +34,7 @@ export class SceneManager {
       powerPreference: 'high-performance',
     });
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     container.appendChild(this.renderer.domElement);
@@ -54,7 +54,7 @@ export class SceneManager {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
     this.bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(width, height),
+      new THREE.Vector2(Math.floor(width / 2), Math.floor(height / 2)),
       0.85,
       0.45,
       0.22
@@ -76,7 +76,7 @@ export class SceneManager {
     this.shakeIntensity = Math.max(this.shakeIntensity, amount);
   }
 
-  public updateCamera(playerX: number, playerY: number, steerInput: number, dt: number): void {
+  public updateCamera(playerX: number, playerY: number, steerInput: number, dt: number, speedRatio = 0): void {
     const targetX = playerX * 0.42;
     const targetY = playerY * 0.42 + 0.55;
 
@@ -93,7 +93,7 @@ export class SceneManager {
 
     const targetRoll = -steerInput * 0.14;
     this.camera.rotation.z += (targetRoll - this.camera.rotation.z) * Math.min(1, dt * 7);
-    this.camera.lookAt(playerX * 0.2, playerY * 0.2, -18);
+    this.camera.lookAt(playerX * 0.2, playerY * 0.2, -18); const targetFov = 74 + Math.min(1, Math.max(0, speedRatio)) * 28; this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6); this.camera.updateProjectionMatrix();
   }
 
   public render(): void {
@@ -107,7 +107,7 @@ export class SceneManager {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
-    this.bloomPass.setSize(width, height);
+    this.bloomPass.setSize(Math.floor(width / 2), Math.floor(height / 2));
   };
 
   public dispose(): void {
