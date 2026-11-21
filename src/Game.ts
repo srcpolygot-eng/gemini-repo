@@ -317,7 +317,7 @@ export class Game {
       this.playerAngle += steerInput * 3.1 * rawDt;
       this.syncPlayerTransform(steerInput);
 
-      this.tunnel.update(effectiveSpeed, rawDt,;
+      this.tunnel.update(effectiveSpeed, rawDt);
 
       const obsResult = this.obstacles.update(
         effectiveSpeed,
