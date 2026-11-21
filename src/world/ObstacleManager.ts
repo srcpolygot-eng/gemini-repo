@@ -22,6 +22,7 @@ export class ObstacleManager {
   private readonly scene: THREE.Scene;
   private readonly group = new THREE.Group();
   private readonly material: THREE.MeshStandardMaterial;
+  private readonly edgeMaterial: THREE.LineBasicMaterial;
   private obstacles: ObstacleInstance[] = [];
   private spawnTimer = 0;
 
@@ -32,7 +33,13 @@ export class ObstacleManager {
       emissive: theme.obstacleEmissiveHex,
       emissiveIntensity: 0.95,
       roughness: 0.22,
-      metalness: 0.55,
+      metalness: 0.45,
+    });
+    this.edgeMaterial = new THREE.LineBasicMaterial({
+      color: new THREE.Color(theme.obstacleEmissiveHex).lerp(new THREE.Color(0xffffff), 0.65),
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
     });
     this.scene.add(this.group);
   }
@@ -40,61 +47,76 @@ export class ObstacleManager {
   public applyTheme(theme: TunnelTheme): void {
     this.material.color.setHex(theme.obstacleColorHex);
     this.material.emissive.setHex(theme.obstacleEmissiveHex);
+    this.edgeMaterial.color.setHex(theme.obstacleEmissiveHex).lerp(new THREE.Color(0xffffff), 0.65);
   }
 
   public reset(): void {
-    for (const obs of this.obstacles) {
-      this.group.remove(obs.mesh);
+    for (const obstacle of this.obstacles) {
+      this.group.remove(obstacle.mesh);
+      this.disposeMesh(obstacle.mesh);
     }
     this.obstacles = [];
-    this.spawnTimer = 0.6;
+    this.spawnTimer = 0.25;
   }
 
-  private spawnPattern(elapsedTime: number): void {
-    const difficulty = Math.min(1, elapsedTime / 75);
-    const kinds: ObstacleKind[] = ['cube', 'bar', 'arc'];
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const baseAngle = Math.random() * Math.PI * 2;
+  private addOutline(mesh: THREE.Mesh, geometry: THREE.BufferGeometry, thresholdAngle = 15): void {
+    const edgesGeo = new THREE.EdgesGeometry(geometry, thresholdAngle);
+    const outline = new THREE.LineSegments(edgesGeo, this.edgeMaterial);
+    outline.scale.setScalar(1.012);
+    mesh.add(outline);
+  }
 
-    this.createObstacle(kind, baseAngle, SPAWN_Z);
-
-    if (difficulty > 0.35 && Math.random() < 0.35 + difficulty * 0.3) {
-      const offset = Math.PI * (0.7 + Math.random() * 0.6);
-      const secondKind: ObstacleKind = Math.random() < 0.6 ? 'cube' : 'bar';
-      this.createObstacle(secondKind, baseAngle + offset, SPAWN_Z - 2.5);
+  private disposeMesh(mesh: THREE.Mesh): void {
+    for (const child of mesh.children) {
+      if (child instanceof THREE.LineSegments) {
+        child.geometry.dispose();
+      }
     }
+    mesh.geometry.dispose();
   }
 
-  private createObstacle(kind: ObstacleKind, angle: number, z: number): void {
-    let mesh: THREE.Object3D;
-    let angularWidth: number;
-    let radialDepth: number;
+  private spawnObstacle(difficulty: number): void {
+    const roll = Math.random();
+    const kind: ObstacleKind = roll < 0.45 ? 'cube' : roll < 0.78 ? 'bar' : 'arc';
+    const angle = Math.random() * Math.PI * 2;
+    let mesh: THREE.Mesh;
+    let angularHalfWidth = 0.34;
+    let radialHalfThickness = 0.95;
 
     if (kind === 'cube') {
-      const geo = new THREE.BoxGeometry(1.15, 1.15, 1.35);
-      const box = new THREE.Mesh(geo, this.material);
-      box.position.set(Math.cos(angle) * ORBIT_RADIUS, Math.sin(angle) * ORBIT_RADIUS, z);
-      box.rotation.z = angle;
-      mesh = box;
-      angularWidth = 0.34;
-      radialDepth = 1.35;
+      const size = 1.55 + Math.random() * 0.65;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      mesh = new THREE.Mesh(geo, this.material);
+      this.addOutline(mesh, geo, 15);
+      mesh.position.set(
+        Math.cos(angle) * ORBIT_RADIUS,
+        Math.sin(angle) * ORBIT_RADIUS,
+        SPAWN_Z
+      );
+      angularHalfWidth = 0.36;
+      radialHalfThickness = size * 0.6;
     } else if (kind === 'bar') {
-      const geo = new THREE.BoxGeometry(0.62, 2.35, 1.15);
-      const bar = new THREE.Mesh(geo, this.material);
-      bar.position.set(Math.cos(angle) * ORBIT_RADIUS, Math.sin(angle) * ORBIT_RADIUS, z);
-      bar.rotation.z = angle + Math.PI / 2;
-      mesh = bar;
-      angularWidth = 0.56;
-      radialDepth = 1.15;
+      const length = 3.8 + Math.random() * 1.4;
+      const geo = new THREE.BoxGeometry(length, 1.05, 1.15);
+      mesh = new THREE.Mesh(geo, this.material);
+      this.addOutline(mesh, geo, 15);
+      mesh.position.set(
+        Math.cos(angle) * (ORBIT_RADIUS - 0.35),
+        Math.sin(angle) * (ORBIT_RADIUS - 0.35),
+        SPAWN_Z
+      );
+      mesh.rotation.z = angle + Math.PI / 2;
+      angularHalfWidth = 0.62;
+      radialHalfThickness = 0.9;
     } else {
-      const arcSpan = 0.78;
-      const geo = new THREE.TorusGeometry(ORBIT_RADIUS, 0.34, 8, 18, arcSpan);
-      const arc = new THREE.Mesh(geo, this.material);
-      arc.position.set(0, 0, z);
-      arc.rotation.z = angle - arcSpan * 0.5;
-      mesh = arc;
-      angularWidth = arcSpan;
-      radialDepth = 1.1;
+      const arcSpan = Math.PI * (0.52 + Math.min(0.28, difficulty * 0.2));
+      const geo = new THREE.TorusGeometry(ORBIT_RADIUS, 0.55, 8, 22, arcSpan);
+      mesh = new THREE.Mesh(geo, this.material);
+      this.addOutline(mesh, geo, 20);
+      mesh.position.set(0, 0, SPAWN_Z);
+      mesh.rotation.z = angle - arcSpan / 2;
+      angularHalfWidth = arcSpan / 2 + 0.12;
+      radialHalfThickness = 0.85;
     }
 
     this.group.add(mesh);
@@ -102,72 +124,86 @@ export class ObstacleManager {
       mesh,
       kind,
       angle,
-      angularWidth,
-      radialDepth,
-      z,
+      angularHalfWidth,
+      radialHalfThickness,
+      z: SPAWN_Z,
+      spinSpeed: (Math.random() - 0.5) * (0.4 + difficulty * 1.3),
       passed: false,
-      nearMissChecked: false,
+      nearMissAwarded: false,
     });
   }
 
   public update(
     speed: number,
     dt: number,
-    elapsedTime: number,
+    difficulty: number,
     playerAngle: number,
-    playerZ: number
+    playerRadius: number,
+    shieldActive: boolean
   ): ObstacleUpdateResult {
-    const moveZ = speed * dt;
+    this.spawnTimer -= dt;
+    if (this.spawnTimer <= 0) {
+      this.spawnObstacle(difficulty);
+      const baseInterval = Math.max(0.27, 0.78 - difficulty * 0.44);
+      this.spawnTimer = baseInterval * (0.85 + Math.random() * 0.35);
+    }
+
     let hit = false;
     let nearMiss = false;
     let passedCount = 0;
 
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
-      this.spawnPattern(elapsedTime);
-      const minInterval = Math.max(0.28, 0.78 - elapsedTime * 0.005);
-      const maxInterval = Math.max(0.45, 1.12 - elapsedTime * 0.006);
-      this.spawnTimer = minInterval + Math.random() * (maxInterval - minInterval);
-    }
-
-    const remaining: ObstacleInstance[] = [];
-
-    for (const obs of this.obstacles) {
-      obs.z += moveZ;
+    for (let i = this.obstacles.length - 1; i >= 0; i--) {
+      const obs = this.obstacles[i];
+      obs.z += speed * dt;
       obs.mesh.position.z = obs.z;
 
       if (obs.kind === 'cube') {
-        obs.mesh.rotation.x += dt * 1.4;
+        obs.mesh.rotation.x += dt * 1.3;
+        obs.mesh.rotation.y += dt * 1.1;
+      } else if (obs.kind === 'arc') {
+        obs.angle += obs.spinSpeed * dt;
+        obs.mesh.rotation.z += obs.spinSpeed * dt;
       }
 
-      if (!obs.passed && Math.abs(obs.z - playerZ) < obs.radialDepth * 0.5 + 0.55) {
-        const diff = normalizeAngleDiff(playerAngle, obs.angle);
-        const hitThreshold = obs.angularWidth * 0.5 + 0.12;
-        const nearMissThreshold = obs.angularWidth * 0.5 + 0.42;
+      if (Math.abs(obs.z) < 0.95) {
+        const angleDiff = normalizeAngleDiff(playerAngle, obs.angle);
+        const radialDiff = Math.abs(playerRadius - ORBIT_RADIUS);
 
-        if (diff < hitThreshold) {
+        if (angleDiff < obs.angularHalfWidth && radialDiff < obs.radialHalfThickness) {
+          if (shieldActive) {
+            this.removeObstacle(i);
+            passedCount += 1;
+            continue;
+          }
           hit = true;
-          obs.passed = true;
-          obs.nearMissChecked = true;
-        } else if (!obs.nearMissChecked && diff < nearMissThreshold) {
-          obs.nearMissChecked = true;
+        } else if (
+          !obs.nearMissAwarded &&
+          angleDiff < obs.angularHalfWidth + 0.34 &&
+          radialDiff < obs.radialHalfThickness + 0.6
+        ) {
+          obs.nearMissAwarded = true;
           nearMiss = true;
         }
       }
 
-      if (!obs.passed && obs.z > playerZ + 1.2) {
+      if (!obs.passed && obs.z > 1.2) {
         obs.passed = true;
         passedCount += 1;
       }
 
       if (obs.z > DESPAWN_Z) {
-        this.group.remove(obs.mesh);
-      } else {
-        remaining.push(obs);
+        this.removeObstacle(i);
       }
     }
 
-    this.obstacles = remaining;
     return { hit, nearMiss, passedCount };
+  }
+
+  private removeObstacle(index: number): void {
+    const [removed] = this.obstacles.splice(index, 1);
+    if (removed) {
+      this.group.remove(removed.mesh);
+      this.disposeMesh(removed.mesh);
+    }
   }
 }
