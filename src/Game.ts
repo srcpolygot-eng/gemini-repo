@@ -13,6 +13,21 @@ const PLAYER_ORBIT_RADIUS = TUNNEL_RADIUS - 1.35;
 const PLAYER_Z = 0;
 const BASE_SPEED = 50;
 const MAX_SPEED = 125;
+const MAX_SPARKS = 180;
+
+interface SparkParticle {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  r: number;
+  g: number;
+  b: number;
+  life: number;
+  maxLife: number;
+}
 
 function getRequiredEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -32,49 +47,58 @@ export class Game {
 
   private readonly playerGroup = new THREE.Group();
   private readonly shipMaterial: THREE.MeshStandardMaterial;
-  private readonly shieldBubble: THREE.Mesh;
+  private readonly cockpitMaterial: THREE.MeshBasicMaterial;
+  private readonly shipEdgeMaterial: THREE.LineBasicMaterial;
+  private readonly thrusterMaterial: THREE.MeshBasicMaterial;
+  private readonly shieldMesh: THREE.Mesh;
+  private thrusterLeft!: THREE.Mesh;
+  private thrusterRight!: THREE.Mesh;
+
+  private readonly sparkGeo: THREE.BufferGeometry;
+  private readonly sparkPositions: Float32Array;
+  private readonly sparkColors: Float32Array;
+  private sparks: SparkParticle[] = [];
 
   private state: GameState = 'menu';
-  private currentTheme: TunnelTheme = THEMES['cyber-cyan'];
+  private currentTheme: TunnelTheme = THEMES.cyberpunk;
   private playerAngle = -Math.PI / 2;
-  private elapsedTime = 0;
+  private speed = BASE_SPEED;
+  private score = 0;
+  private bestScore = 0;
+  private combo = 1;
   private comboTimer = 0;
-  private lastFrameTime = 0;
+  private nearMisses = 0;
+  private distance = 0;
+  private runTime = 0;
+  private lastFrameTime = performance.now();
   private rafId = 0;
+  private muted = false;
 
-  private stats: RunStats = {
-    score: 0,
-    bestScore: this.loadBestScore(),
-    distance: 0,
-    nearMisses: 0,
-    combo: 0,
-    speedMultiplier: 1,
+  private activePowerUps: ActivePowerUps = {
+    shieldRemaining: 0,
+    multiplierRemaining: 0,
+    slowMoRemaining: 0,
   };
 
-  private readonly hudEl = getRequiredEl<HTMLDivElement>('hud');
-  private readonly scoreValueEl = getRequiredEl<HTMLElement>('score-value');
-  private readonly themeBadgeEl = getRequiredEl<HTMLElement>('theme-badge');
-  private readonly comboDisplayEl = getRequiredEl<HTMLDivElement>('combo-display');
-  private readonly speedValueEl = getRequiredEl<HTMLElement>('speed-value');
-  private readonly powerupIndicatorsEl = getRequiredEl<HTMLDivElement>('powerup-indicators');
-  private readonly multiplierValueEl = getRequiredEl<HTMLElement>('multiplier-value');
-  private readonly muteBtnEl = getRequiredEl<HTMLButtonElement>('mute-btn');
+  private readonly startOverlay: HTMLElement;
+  private readonly pauseOverlay: HTMLElement;
+  private readonly gameOverOverlay: HTMLElement;
+  private readonly hudEl: HTMLElement;
+  private readonly scoreValueEl: HTMLElement;
+  private readonly bestValueEl: HTMLElement;
+  private readonly speedValueEl: HTMLElement;
+  private readonly comboValueEl: HTMLElement;
+  private readonly powerUpBadgesEl: HTMLElement;
+  private readonly finalScoreEl: HTMLElement;
+  private readonly finalBestEl: HTMLElement;
+  private readonly finalDistanceEl: HTMLElement;
+  private readonly finalNearMissEl: HTMLElement;
+  private readonly muteButton: HTMLButtonElement;
+  private readonly themeButtons: NodeListOf<HTMLButtonElement>;
 
-  private readonly startScreenEl = getRequiredEl<HTMLDivElement>('start-screen');
-  private readonly themeSelectorEl = getRequiredEl<HTMLDivElement>('theme-selector');
-  private readonly bestScoreDisplayEl = getRequiredEl<HTMLElement>('best-score-display');
-  private readonly startBtnEl = getRequiredEl<HTMLButtonElement>('start-btn');
+  constructor(container: HTMLElement) {
+    this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY) || '0') || 0;
 
-  private readonly gameoverScreenEl = getRequiredEl<HTMLDivElement>('gameover-screen');
-  private readonly finalScoreEl = getRequiredEl<HTMLElement>('final-score');
-  private readonly finalBestEl = getRequiredEl<HTMLElement>('final-best');
-  private readonly finalDistanceEl = getRequiredEl<HTMLElement>('final-distance');
-  private readonly finalNearMissesEl = getRequiredEl<HTMLElement>('final-near-misses');
-  private readonly restartBtnEl = getRequiredEl<HTMLButtonElement>('restart-btn');
-  private readonly menuBtnEl = getRequiredEl<HTMLButtonElement>('menu-btn');
-
-  constructor() {
-    const container = getRequiredEl<HTMLDivElement>('app');
     this.sceneManager = new SceneManager(container, this.currentTheme);
     this.inputManager = new InputManager();
     this.tunnel = new TunnelGenerator(this.sceneManager.scene, this.currentTheme);
@@ -83,15 +107,36 @@ export class Game {
     this.audio = new SynthAudio();
 
     this.shipMaterial = new THREE.MeshStandardMaterial({
-      color: this.currentTheme.playerColorHex,
-      emissive: this.currentTheme.playerColorHex,
-      emissiveIntensity: 0.7,
-      roughness: 0.2,
-      metalness: 0.65,
+      color: this.currentTheme.shipColorHex,
+      emissive: this.currentTheme.shipEmissiveHex,
+      emissiveIntensity: 0.75,
+      roughness: 0.25,
+      metalness: 0.7,
     });
 
-    this.shieldBubble = new THREE.Mesh(
-      new THREE.SphereGeometry(0.95, 18, 18),
+    this.cockpitMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.95,
+    });
+
+    this.shipEdgeMaterial = new THREE.LineBasicMaterial({
+      color: this.currentTheme.ringColorHex,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+    });
+
+    this.thrusterMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    this.shieldMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.15, 20, 16),
       new THREE.MeshBasicMaterial({
         color: 0x38bdf8,
         wireframe: true,
@@ -99,313 +144,449 @@ export class Game {
         opacity: 0.45,
       })
     );
-    this.shieldBubble.visible = false;
+    this.shieldMesh.visible = false;
 
     this.buildPlayerShip();
-    this.buildThemeButtons();
-    this.applyTheme(this.currentTheme.id);
-    this.bindUI();
-    this.updateBestScoreUI();
+    this.sceneManager.scene.add(this.playerGroup);
+
+    this.sparkPositions = new Float32Array(MAX_SPARKS * 3);
+    this.sparkColors = new Float32Array(MAX_SPARKS * 3);
+    this.sparkGeo = new THREE.BufferGeometry();
+    this.sparkGeo.setAttribute('position', new THREE.BufferAttribute(this.sparkPositions, 3));
+    this.sparkGeo.setAttribute('color', new THREE.BufferAttribute(this.sparkColors, 3));
+    const sparkMat = new THREE.PointsMaterial({
+      size: 0.18,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const sparkPoints = new THREE.Points(this.sparkGeo, sparkMat);
+    sparkPoints.frustumCulled = false;
+    this.sceneManager.scene.add(sparkPoints);
+
+    this.startOverlay = getRequiredEl('start-overlay');
+    this.pauseOverlay = getRequiredEl('pause-overlay');
+    this.gameOverOverlay = getRequiredEl('gameover-overlay');
+    this.hudEl = getRequiredEl('hud');
+    this.scoreValueEl = getRequiredEl('hud-score');
+    this.bestValueEl = getRequiredEl('hud-best');
+    this.speedValueEl = getRequiredEl('hud-speed');
+    this.comboValueEl = getRequiredEl('hud-combo');
+    this.powerUpBadgesEl = getRequiredEl('hud-powerups');
+    this.finalScoreEl = getRequiredEl('final-score');
+    this.finalBestEl = getRequiredEl('final-best');
+    this.finalDistanceEl = getRequiredEl('final-distance');
+    this.finalNearMissEl = getRequiredEl('final-nearmiss');
+    this.muteButton = getRequiredEl<HTMLButtonElement>('btn-mute');
+    this.themeButtons = document.querySelectorAll<HTMLButtonElement>('[data-theme]');
+
+    this.bindUiEvents();
+    this.applyTheme('cyberpunk');
+    this.updatePlayerPosition(0);
+    this.updateHud();
+    this.rafId = requestAnimationFrame(this.loop);
   }
 
-  private loadBestScore(): number {
-    try {
-      const raw = localStorage.getItem(BEST_SCORE_KEY);
-      const parsed = raw ? Number.parseInt(raw, 10) : 0;
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  private saveBestScore(value: number): void {
-    try {
-      localStorage.setItem(BEST_SCORE_KEY, String(Math.floor(value)));
-    } catch {
-      // Ignore storage errors in restricted environments
-    }
+  private addShipEdge(mesh: THREE.Mesh, geo: THREE.BufferGeometry): void {
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 18), this.shipEdgeMaterial);
+    edges.scale.setScalar(1.015);
+    mesh.add(edges);
   }
 
   private buildPlayerShip(): void {
-    const hull = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.35, 6), this.shipMaterial);
-    hull.rotation.x = -Math.PI / 2;
+    const bodyGeo = new THREE.ConeGeometry(0.32, 1.85, 6);
+    bodyGeo.rotateX(-Math.PI / 2);
+    const body = new THREE.Mesh(bodyGeo, this.shipMaterial);
+    this.addShipEdge(body, bodyGeo);
+    this.playerGroup.add(body);
 
-    const wingGeo = new THREE.BoxGeometry(1.45, 0.08, 0.52);
-    const wings = new THREE.Mesh(wingGeo, this.shipMaterial);
-    wings.position.set(0, -0.04, 0.2);
+    const cockpitGeo = new THREE.SphereGeometry(0.18, 12, 10);
+    cockpitGeo.scale(0.85, 0.55, 1.9);
+    const cockpit = new THREE.Mesh(cockpitGeo, this.cockpitMaterial);
+    cockpit.position.set(0, 0.14, -0.2);
+    this.playerGroup.add(cockpit);
 
-    this.playerGroup.add(hull);
-    this.playerGroup.add(wings);
-    this.playerGroup.add(this.shieldBubble);
-    this.sceneManager.scene.add(this.playerGroup);
-    this.syncPlayerTransform(0);
+    const noseGeo = new THREE.ConeGeometry(0.08, 0.36, 6);
+    noseGeo.rotateX(-Math.PI / 2);
+    const nose = new THREE.Mesh(noseGeo, this.cockpitMaterial);
+    nose.position.set(0, 0, -1.04);
+    this.playerGroup.add(nose);
+
+    const wingGeo = new THREE.BoxGeometry(1.15, 0.05, 0.52);
+    const leftWing = new THREE.Mesh(wingGeo, this.shipMaterial);
+    leftWing.position.set(-0.58, -0.04, 0.24);
+    leftWing.rotation.set(0, 0.48, 0.12);
+    this.addShipEdge(leftWing, wingGeo);
+    this.playerGroup.add(leftWing);
+
+    const rightWing = new THREE.Mesh(wingGeo, this.shipMaterial);
+    rightWing.position.set(0.58, -0.04, 0.24);
+    rightWing.rotation.set(0, -0.48, -0.12);
+    this.addShipEdge(rightWing, wingGeo);
+    this.playerGroup.add(rightWing);
+
+    const finGeo = new THREE.BoxGeometry(0.05, 0.36, 0.36);
+    const leftFin = new THREE.Mesh(finGeo, this.shipMaterial);
+    leftFin.position.set(-0.24, 0.16, 0.58);
+    leftFin.rotation.z = 0.25;
+    this.addShipEdge(leftFin, finGeo);
+    this.playerGroup.add(leftFin);
+
+    const rightFin = new THREE.Mesh(finGeo, this.shipMaterial);
+    rightFin.position.set(0.24, 0.16, 0.58);
+    rightFin.rotation.z = -0.25;
+    this.addShipEdge(rightFin, finGeo);
+    this.playerGroup.add(rightFin);
+
+    const thrusterGeo = new THREE.ConeGeometry(0.11, 0.52, 8);
+    thrusterGeo.rotateX(Math.PI / 2);
+    this.thrusterLeft = new THREE.Mesh(thrusterGeo, this.thrusterMaterial);
+    this.thrusterLeft.position.set(-0.22, -0.02, 0.96);
+    this.playerGroup.add(this.thrusterLeft);
+
+    this.thrusterRight = new THREE.Mesh(thrusterGeo, this.thrusterMaterial);
+    this.thrusterRight.position.set(0.22, -0.02, 0.96);
+    this.playerGroup.add(this.thrusterRight);
+
+    this.playerGroup.add(this.shieldMesh);
   }
 
-  private buildThemeButtons(): void {
-    this.themeSelectorEl.innerHTML = '';
-    for (const theme of THEME_LIST) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'theme-card';
-      btn.dataset.themeId = theme.id;
-      btn.style.setProperty('--theme-accent', theme.accentCss);
-      btn.innerHTML = `<span class="theme-dot"></span><span>${theme.name}</span>`;
-      btn.addEventListener('click', () => {
-        this.applyTheme(theme.id);
+  private spawnSparkBurst(origin: THREE.Vector3, colorHex: number, count: number, speedScale = 1): void {
+    const color = new THREE.Color(colorHex);
+    for (let i = 0; i < count; i++) {
+      if (this.sparks.length >= MAX_SPARKS) {
+        this.sparks.shift();
+      }
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI;
+      const spd = (5 + Math.random() * 13) * speedScale;
+      const maxLife = 0.32 + Math.random() * 0.35;
+      this.sparks.push({
+        x: origin.x,
+        y: origin.y,
+        z: origin.z,
+        vx: Math.cos(theta) * Math.cos(phi) * spd,
+        vy: Math.sin(theta) * Math.cos(phi) * spd,
+        vz: (Math.sin(phi) * spd) + 8,
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        life: maxLife,
+        maxLife,
       });
-      this.themeSelectorEl.appendChild(btn);
     }
   }
+
+  private updateSparks(dt: number): void {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.sparks.splice(i, 1);
+        continue;
+      }
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.z += s.vz * dt;
+      s.vx *= 0.96;
+      s.vy *= 0.96;
+    }
+
+    this.sparkPositions.fill(0);
+    this.sparkColors.fill(0);
+    for (let i = 0; i < this.sparks.length; i++) {
+      const s = this.sparks[i];
+      const fade = Math.max(0, s.life / s.maxLife);
+      const idx = i * 3;
+      this.sparkPositions[idx] = s.x;
+      this.sparkPositions[idx + 1] = s.y;
+      this.sparkPositions[idx + 2] = s.z;
+      this.sparkColors[idx] = s.r * fade;
+      this.sparkColors[idx + 1] = s.g * fade;
+      this.sparkColors[idx + 2] = s.b * fade;
+    }
+    (this.sparkGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (this.sparkGeo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    this.sparkGeo.setDrawRange(0, this.sparks.length);
+  }
+
+  private bindUiEvents(): void {
+    getRequiredEl('btn-start').addEventListener('click', () => this.startRun());
+    getRequiredEl('btn-restart').addEventListener('click', () => this.startRun());
+    getRequiredEl('btn-resume').addEventListener('click', () => this.resumeRun());
+    getRequiredEl('btn-quit').addEventListener('click', () => this.returnToMenu());
+
+    this.muteButton.addEventListener('click', () => {
+      this.muted = !this.muted;
+      this.audio.setMuted(this.muted);
+      this.muteButton.textContent = this.muted ? 'Audio: OFF' : 'Audio: ON';
+    });
+
+    this.themeButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const themeId = btn.dataset.theme as ThemeId | undefined;
+        if (themeId && THEMES[themeId]) {
+          this.applyTheme(themeId);
+        }
+      });
+    });
+
+    window.addEventListener('keydown', this.handleGlobalKeyDown);
+  }
+
+  private handleGlobalKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === 'Escape' || event.code === 'KeyP') {
+      if (this.state === 'playing') {
+        this.pauseRun();
+      } else if (this.state === 'paused') {
+        this.resumeRun();
+      }
+      return;
+    }
+
+    if (event.code === 'Space' && (this.state === 'menu' || this.state === 'gameover')) {
+      event.preventDefault();
+      this.startRun();
+    }
+  };
 
   private applyTheme(themeId: ThemeId): void {
-    const theme = THEMES[themeId];
-    this.currentTheme = theme;
-    document.documentElement.style.setProperty('--accent', theme.accentCss);
+    this.currentTheme = THEMES[themeId];
+    this.sceneManager.applyTheme(this.currentTheme);
+    this.tunnel.applyTheme(this.currentTheme);
+    this.obstacles.applyTheme(this.currentTheme);
+    this.shipMaterial.color.setHex(this.currentTheme.shipColorHex);
+    this.shipMaterial.emissive.setHex(this.currentTheme.shipEmissiveHex);
+    this.shipEdgeMaterial.color.setHex(this.currentTheme.ringColorHex);
+    this.thrusterMaterial.color.setHex(this.currentTheme.ringColorHex);
 
-    this.sceneManager.applyTheme(theme);
-    this.tunnel.applyTheme(theme);
-    this.obstacles.applyTheme(theme);
-
-    this.shipMaterial.color.setHex(theme.playerColorHex);
-    this.shipMaterial.emissive.setHex(theme.playerColorHex);
-    this.themeBadgeEl.textContent = theme.name.toUpperCase();
-
-    const cards = this.themeSelectorEl.querySelectorAll<HTMLButtonElement>('.theme-card');
-    for (const card of cards) {
-      card.classList.toggle('active', card.dataset.themeId === theme.id);
-    }
-  }
-
-  private bindUI(): void {
-    this.startBtnEl.addEventListener('click', () => this.startRun());
-    this.restartBtnEl.addEventListener('click', () => this.startRun());
-    this.menuBtnEl.addEventListener('click', () => this.showMenu());
-    this.muteBtnEl.addEventListener('click', () => {
-      const muted = this.audio.toggleMute();
-      this.muteBtnEl.textContent = muted ? 'SFX: OFF' : 'SFX: ON';
+    this.themeButtons.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.theme === themeId);
     });
-
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.code === 'KeyM') {
-        const muted = this.audio.toggleMute();
-        this.muteBtnEl.textContent = muted ? 'SFX: OFF' : 'SFX: ON';
-      } else if ((e.code === 'Space' || e.code === 'Enter') && this.state !== 'playing') {
-        e.preventDefault();
-        this.startRun();
-      }
-    });
-  }
-
-  public start(): void {
-    this.lastFrameTime = performance.now();
-    this.rafId = requestAnimationFrame(this.loop);
   }
 
   private startRun(): void {
     this.audio.unlock();
-    this.audio.startPulse();
-
+    this.audio.playStart();
     this.state = 'playing';
     this.playerAngle = -Math.PI / 2;
-    this.elapsedTime = 0;
+    this.speed = BASE_SPEED;
+    this.score = 0;
+    this.combo = 1;
     this.comboTimer = 0;
-
-    this.stats = {
-      score: 0,
-      bestScore: this.stats.bestScore,
-      distance: 0,
-      nearMisses: 0,
-      combo: 0,
-      speedMultiplier: 1,
+    this.nearMisses = 0;
+    this.distance = 0;
+    this.runTime = 0;
+    this.sparks = [];
+    this.activePowerUps = {
+      shieldRemaining: 0,
+      multiplierRemaining: 0,
+      slowMoRemaining: 0,
     };
 
     this.obstacles.reset();
     this.powerUps.reset();
-    this.shieldBubble.visible = false;
-
-    this.startScreenEl.classList.add('hidden');
-    this.gameoverScreenEl.classList.add('hidden');
+    this.startOverlay.classList.add('hidden');
+    this.pauseOverlay.classList.add('hidden');
+    this.gameOverOverlay.classList.add('hidden');
     this.hudEl.classList.remove('hidden');
-    this.updateHUD({ shield: 0, slowmo: 0, double: 0 });
+    this.updateHud();
   }
 
-  private showMenu(): void {
+  private pauseRun(): void {
+    if (this.state !== 'playing') return;
+    this.state = 'paused';
+    this.pauseOverlay.classList.remove('hidden');
+  }
+
+  private resumeRun(): void {
+    if (this.state !== 'paused') return;
+    this.state = 'playing';
+    this.pauseOverlay.classList.add('hidden');
+    this.lastFrameTime = performance.now();
+  }
+
+  private returnToMenu(): void {
     this.state = 'menu';
-    this.audio.stopPulse();
     this.obstacles.reset();
     this.powerUps.reset();
-    this.shieldBubble.visible = false;
-
+    this.pauseOverlay.classList.add('hidden');
+    this.gameOverOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
-    this.gameoverScreenEl.classList.add('hidden');
-    this.startScreenEl.classList.remove('hidden');
-    this.updateBestScoreUI();
+    this.startOverlay.classList.remove('hidden');
   }
 
   private triggerGameOver(): void {
     this.state = 'gameover';
-    this.audio.stopPulse();
     this.audio.playCrash();
-    this.sceneManager.triggerShake(0.85);
+    this.sceneManager.triggerShake(0.65);
 
-    const finalScore = Math.floor(this.stats.score);
-    if (finalScore > this.stats.bestScore) {
-      this.stats.bestScore = finalScore;
-      this.saveBestScore(finalScore);
+    const roundedScore = Math.floor(this.score);
+    if (roundedScore > this.bestScore) {
+      this.bestScore = roundedScore;
+      localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
     }
 
-    this.finalScoreEl.textContent = String(finalScore);
-    this.finalBestEl.textContent = String(this.stats.bestScore);
-    this.finalDistanceEl.textContent = `${Math.floor(this.stats.distance)}m`;
-    this.finalNearMissesEl.textContent = String(this.stats.nearMisses);
+    const stats: RunStats = {
+      score: roundedScore,
+      bestScore: this.bestScore,
+      distance: Math.floor(this.distance),
+      nearMisses: this.nearMisses,
+      maxSpeed: Math.round(this.speed),
+    };
+
+    this.finalScoreEl.textContent = stats.score.toLocaleString();
+    this.finalBestEl.textContent = stats.bestScore.toLocaleString();
+    this.finalDistanceEl.textContent = `${stats.distance} m`;
+    this.finalNearMissEl.textContent = String(stats.nearMisses);
 
     this.hudEl.classList.add('hidden');
-    this.gameoverScreenEl.classList.remove('hidden');
-    this.updateBestScoreUI();
+    this.gameOverOverlay.classList.remove('hidden');
   }
 
-  private updateBestScoreUI(): void {
-    this.bestScoreDisplayEl.textContent = String(this.stats.bestScore);
+  private updatePlayerPosition(steerInput: number): void {
+    const x = Math.cos(this.playerAngle) * PLAYER_ORBIT_RADIUS;
+    const y = Math.sin(this.playerAngle) * PLAYER_ORBIT_RADIUS;
+    this.playerGroup.position.set(x, y, PLAYER_Z);
+    this.playerGroup.rotation.z = this.playerAngle + Math.PI / 2 - steerInput * 0.36;
   }
 
-  private syncPlayerTransform(steerInput: number): void {
-    const px = Math.cos(this.playerAngle) * PLAYER_ORBIT_RADIUS;
-    const py = Math.sin(this.playerAngle) * PLAYER_ORBIT_RADIUS;
-    this.playerGroup.position.set(px, py, PLAYER_Z);
-    this.playerGroup.rotation.z = this.playerAngle + Math.PI / 2 - steerInput * 0.45;
+  private updateActivePowerUps(dt: number): void {
+    this.activePowerUps.shieldRemaining = Math.max(0, this.activePowerUps.shieldRemaining - dt);
+    this.activePowerUps.multiplierRemaining = Math.max(0, this.activePowerUps.multiplierRemaining - dt);
+    this.activePowerUps.slowMoRemaining = Math.max(0, this.activePowerUps.slowMoRemaining - dt);
+
+    const shieldActive = this.activePowerUps.shieldRemaining > 0;
+    this.shieldMesh.visible = shieldActive;
+    if (shieldActive) {
+      this.shieldMesh.rotation.y += dt * 2.5;
+      this.shieldMesh.rotation.x += dt * 1.4;
+    }
+
+    const badges: string[] = [];
+    if (shieldActive) badges.push(`SHIELD ${this.activePowerUps.shieldRemaining.toFixed(1)}s`);
+    if (this.activePowerUps.multiplierRemaining > 0) {
+      badges.push(`2X SCORE ${this.activePowerUps.multiplierRemaining.toFixed(1)}s`);
+    }
+    if (this.activePowerUps.slowMoRemaining > 0) {
+      badges.push(`SLOW-MO ${this.activePowerUps.slowMoRemaining.toFixed(1)}s`);
+    }
+    this.powerUpBadgesEl.innerHTML = badges.map((b) => `<span class="badge">${b}</span>`).join('');
   }
 
-  private updateHUD(active: ActivePowerUps): void {
-    const multiplier = active.double > 0 ? 2 : 1;
-    this.scoreValueEl.textContent = String(Math.floor(this.stats.score));
-    this.speedValueEl.textContent = `${this.stats.speedMultiplier.toFixed(1)}x`;
-    this.multiplierValueEl.textContent = `${multiplier}x`;
-
-    if (this.stats.combo > 1) {
-      this.comboDisplayEl.textContent = `NEAR MISS x${this.stats.combo}`;
-      this.comboDisplayEl.classList.remove('hidden');
-    } else {
-      this.comboDisplayEl.classList.add('hidden');
-    }
-
-    const pills: string[] = [];
-    if (active.shield > 0) {
-      pills.push(`<span class="powerup-pill shield">SHIELD ${active.shield.toFixed(1)}s</span>`);
-    }
-    if (active.slowmo > 0) {
-      pills.push(`<span class="powerup-pill slowmo">SLOW-MO ${active.slowmo.toFixed(1)}s</span>`);
-    }
-    if (active.double > 0) {
-      pills.push(`<span class="powerup-pill double">2X SCORE ${active.double.toFixed(1)}s</span>`);
-    }
-    this.powerupIndicatorsEl.innerHTML = pills.join('');
+  private updateHud(): void {
+    this.scoreValueEl.textContent = Math.floor(this.score).toLocaleString();
+    this.bestValueEl.textContent = this.bestScore.toLocaleString();
+    this.speedValueEl.textContent = `${Math.round(this.speed)} u/s`;
+    this.comboValueEl.textContent = `x${this.combo}`;
   }
 
-  private readonly loop = (now: number): void => {
+  private loop = (now: number): void => {
+    this.rafId = requestAnimationFrame(this.loop);
     const rawDt = Math.min(0.05, Math.max(0.001, (now - this.lastFrameTime) / 1000));
     this.lastFrameTime = now;
 
+    this.updateSparks(rawDt);
+
     if (this.state === 'playing') {
-      this.elapsedTime += rawDt;
+      this.runTime += rawDt;
+      this.updateActivePowerUps(rawDt);
 
-      const active = this.powerUps.getActive();
-      const rampSpeed = Math.min(MAX_SPEED, BASE_SPEED + this.elapsedTime * 1.4);
-      const effectiveSpeed = active.slowmo > 0 ? rampSpeed * 0.58 : rampSpeed;
-      this.stats.speedMultiplier = effectiveSpeed / BASE_SPEED;
+      const timeScale = this.activePowerUps.slowMoRemaining > 0 ? 0.62 : 1;
+      const dt = rawDt * timeScale;
 
-      const steerInput = this.inputManager.getSteerInput();
-      this.playerAngle += steerInput * 4.6 * rawDt;
-      this.syncPlayerTransform(steerInput);
+      const difficulty = Math.min(1, this.runTime / 75);
+      this.speed = Math.min(MAX_SPEED, BASE_SPEED + difficulty * (MAX_SPEED - BASE_SPEED));
 
-      this.tunnel.update(effectiveSpeed, rawDt);
+      const steer = this.inputManager.getSteerAxis();
+      this.playerAngle += steer * (2.85 + difficulty * 0.65) * rawDt;
+      this.updatePlayerPosition(steer);
 
+      const speedRatio = (this.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
+      const thrusterPulse = 0.85 + speedRatio * 0.75 + Math.sin(now * 0.04) * 0.18;
+      this.thrusterLeft.scale.set(1, 1, thrusterPulse);
+      this.thrusterRight.scale.set(1, 1, thrusterPulse);
+      this.thrusterMaterial.opacity = 0.7 + speedRatio * 0.28;
+
+      this.tunnel.update(this.speed, dt);
       const obsResult = this.obstacles.update(
-        effectiveSpeed,
-        rawDt,
-        this.elapsedTime,
+        this.speed,
+        dt,
+        difficulty,
         this.playerAngle,
-        PLAYER_Z
+        PLAYER_ORBIT_RADIUS,
+        this.activePowerUps.shieldRemaining > 0
       );
-
-      const collected = this.powerUps.update(
-        effectiveSpeed,
-        rawDt,
-        this.playerAngle,
-        PLAYER_Z
-      );
-
-      if (collected) {
-        this.audio.playPowerUp();
-      }
-
-      const updatedActive = this.powerUps.getActive();
-      this.shieldBubble.visible = updatedActive.shield > 0;
-      if (this.shieldBubble.visible) {
-        this.shieldBubble.rotation.y += rawDt * 2;
-      }
-
-      if (this.comboTimer > 0) {
-        this.comboTimer -= rawDt;
-        if (this.comboTimer <= 0) {
-          this.stats.combo = 0;
-        }
-      }
-
-      const scoreMult = updatedActive.double > 0 ? 2 : 1;
-
-      if (obsResult.nearMiss) {
-        this.stats.nearMisses += 1;
-        this.stats.combo += 1;
-        this.comboTimer = 3.2;
-        this.stats.score += 50 * this.stats.combo * scoreMult;
-        this.audio.playNearMiss(this.stats.combo);
-      }
-
-      if (obsResult.passedCount > 0) {
-        this.stats.score += obsResult.passedCount * 15 * scoreMult;
-      }
-
-      this.stats.distance += effectiveSpeed * rawDt;
-      this.stats.score += effectiveSpeed * rawDt * 0.6 * scoreMult;
 
       if (obsResult.hit) {
-        if (this.powerUps.consumeShield()) {
-          this.audio.playShieldBreak();
-          this.sceneManager.triggerShake(0.45);
-          this.shieldBubble.visible = false;
-        } else {
-          this.triggerGameOver();
+        this.spawnSparkBurst(this.playerGroup.position, 0xff3366, 55, 1.65);
+        this.triggerGameOver();
+      } else {
+        if (obsResult.nearMiss) {
+          this.nearMisses += 1;
+          this.combo = Math.min(8, this.combo + 1);
+          this.comboTimer = 4.0;
+          this.score += 120 * this.combo;
+          this.audio.playNearMiss();
+          this.sceneManager.triggerShake(0.14);
+          this.spawnSparkBurst(this.playerGroup.position, 0x00f0ff, 22, 1.0);
         }
-      }
 
-      this.audio.updatePulse(rawDt, this.stats.speedMultiplier);
-      this.sceneManager.updateCamera(
-        this.playerGroup.position.x,
-        this.playerGroup.position.y,
-        steerInput,
-        rawDt
-      );
+        if (this.comboTimer > 0) {
+          this.comboTimer -= rawDt;
+          if (this.comboTimer <= 0) {
+            this.combo = 1;
+          }
+        }
 
-      if (this.state === 'playing') {
-        this.updateHUD(this.powerUps.getActive());
+        const collected = this.powerUps.update(this.speed, dt, this.playerAngle, PLAYER_ORBIT_RADIUS);
+        if (collected) {
+          this.audio.playPowerUp();
+          const pColor = collected === 'shield' ? 0x38bdf8 : collected === 'multiplier' ? 0xfacc15 : 0xa855f7;
+          this.spawnSparkBurst(this.playerGroup.position, pColor, 28, 1.15);
+          if (collected === 'shield') this.activePowerUps.shieldRemaining = 7.0;
+          if (collected === 'multiplier') this.activePowerUps.multiplierRemaining = 8.0;
+          if (collected === 'slowmo') this.activePowerUps.slowMoRemaining = 5.0;
+        }
+
+        const scoreMultiplier = this.activePowerUps.multiplierRemaining > 0 ? 2 : 1;
+        this.distance += this.speed * dt;
+        this.score += (this.speed * dt * 1.4 + obsResult.passedCount * 25) * this.combo * scoreMultiplier;
+
+        const themeIndex = Math.floor(this.runTime / 28) % THEME_LIST.length;
+        const targetTheme = THEME_LIST[themeIndex];
+        if (targetTheme.id !== this.currentTheme.id) {
+          this.applyTheme(targetTheme.id);
+        }
+
+        this.sceneManager.updateCamera(
+          this.playerGroup.position.x,
+          this.playerGroup.position.y,
+          steer,
+          rawDt,
+          speedRatio
+        );
+        this.updateHud();
       }
-    } else {
-      this.tunnel.update(14, rawDt);
-      this.syncPlayerTransform(0);
-      this.sceneManager.updateCamera(
-        this.playerGroup.position.x,
-        this.playerGroup.position.y,
-        0,
-        rawDt
-      );
+    } else if (this.state === 'menu') {
+      this.tunnel.update(28, rawDt);
+      this.playerAngle = -Math.PI / 2 + Math.sin(now * 0.0012) * 0.35;
+      this.updatePlayerPosition(Math.cos(now * 0.0012) * 0.4);
+      const idlePulse = 0.8 + Math.sin(now * 0.03) * 0.12;
+      this.thrusterLeft.scale.set(1, 1, idlePulse);
+      this.thrusterRight.scale.set(1, 1, idlePulse);
+      this.sceneManager.updateCamera(this.playerGroup.position.x, this.playerGroup.position.y, 0, rawDt, 0);
     }
 
     this.sceneManager.render();
-    this.rafId = requestAnimationFrame(this.loop);
   };
 
   public dispose(): void {
     cancelAnimationFrame(this.rafId);
+    window.removeEventListener('keydown', this.handleGlobalKeyDown);
     this.inputManager.dispose();
+    this.sceneManager.dispose();
   }
 }
