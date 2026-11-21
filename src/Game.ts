@@ -39,7 +39,7 @@ function getRequiredEl<T extends HTMLElement>(id: string): T {
 
 export class Game {
   private readonly sceneManager: SceneManager;
-  private readonly inputManager: InputManager;
+  private readonly input: InputManager;
   private readonly tunnel: TunnelGenerator;
   private readonly obstacles: ObstacleManager;
   private readonly powerUps: PowerUpManager;
@@ -59,8 +59,8 @@ export class Game {
   private readonly sparkColors: Float32Array;
   private sparks: SparkParticle[] = [];
 
-  private state: GameState = 'menu';
-  private currentTheme: TunnelTheme = THEMES.cyberpunk;
+  private state: GameState = 'menu'; private paused = false; public start(): void { if (!this.rafId) { this.rafId = requestAnimationFrame(this.loop); } }
+  private currentTheme: TunnelTheme = THEMES['cyber-cyan'];
   private playerAngle = -Math.PI / 2;
   private speed = BASE_SPEED;
   private score = 0;
@@ -75,9 +75,9 @@ export class Game {
   private muted = false;
 
   private activePowerUps: ActivePowerUps = {
-    shieldRemaining: 0,
-    multiplierRemaining: 0,
-    slowMoRemaining: 0,
+    shield: 0,
+    double: 0,
+    slowmo: 0,
   };
 
   private readonly startOverlay: HTMLElement;
@@ -96,11 +96,11 @@ export class Game {
   private readonly muteButton: HTMLButtonElement;
   private readonly themeButtons: NodeListOf<HTMLButtonElement>;
 
-  constructor(container: HTMLElement) {
+  constructor(container?: HTMLElement) {
     this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY) || '0') || 0;
 
-    this.sceneManager = new SceneManager(container, this.currentTheme);
-    this.inputManager = new InputManager();
+    this.sceneManager = new SceneManager(container ?? document.getElementById('app') ?? document.body, this.currentTheme);
+    this.input = new InputManager();
     this.tunnel = new TunnelGenerator(this.sceneManager.scene, this.currentTheme);
     this.obstacles = new ObstacleManager(this.sceneManager.scene, this.currentTheme);
     this.powerUps = new PowerUpManager(this.sceneManager.scene);
@@ -183,10 +183,9 @@ export class Game {
     this.themeButtons = document.querySelectorAll<HTMLButtonElement>('[data-theme]');
 
     this.bindUiEvents();
-    this.applyTheme('cyberpunk');
+    this.applyTheme('cyber-cyan');
     this.updatePlayerPosition(0);
     this.updateHud();
-    this.rafId = requestAnimationFrame(this.loop);
   }
 
   private addShipEdge(mesh: THREE.Mesh, geo: THREE.BufferGeometry): void {
@@ -338,9 +337,9 @@ export class Game {
 
   private handleGlobalKeyDown = (event: KeyboardEvent): void => {
     if (event.code === 'Escape' || event.code === 'KeyP') {
-      if (this.state === 'playing') {
+      if (this.state === 'playing' && !this.paused) {
         this.pauseRun();
-      } else if (this.state === 'paused') {
+      } else if (this.paused) {
         this.resumeRun();
       }
       return;
@@ -368,9 +367,9 @@ export class Game {
   }
 
   private startRun(): void {
-    this.audio.unlock();
-    this.audio.playStart();
-    this.state = 'playing';
+    // audio pulse
+    this.audio.startPulse();
+    this.state = 'playing'; this.paused = false;
     this.playerAngle = -Math.PI / 2;
     this.speed = BASE_SPEED;
     this.score = 0;
@@ -381,9 +380,9 @@ export class Game {
     this.runTime = 0;
     this.sparks = [];
     this.activePowerUps = {
-      shieldRemaining: 0,
-      multiplierRemaining: 0,
-      slowMoRemaining: 0,
+      shield: 0,
+      double: 0,
+      slowmo: 0,
     };
 
     this.obstacles.reset();
@@ -397,19 +396,19 @@ export class Game {
 
   private pauseRun(): void {
     if (this.state !== 'playing') return;
-    this.state = 'paused';
+    this.paused = true; this.audio.stopPulse();
     this.pauseOverlay.classList.remove('hidden');
   }
 
   private resumeRun(): void {
-    if (this.state !== 'paused') return;
-    this.state = 'playing';
+    if (!this.paused) return;
+    this.state = 'playing'; this.paused = false;
     this.pauseOverlay.classList.add('hidden');
     this.lastFrameTime = performance.now();
   }
 
   private returnToMenu(): void {
-    this.state = 'menu';
+    this.state = 'menu'; this.paused = false; this.audio.stopPulse();
     this.obstacles.reset();
     this.powerUps.reset();
     this.pauseOverlay.classList.add('hidden');
@@ -419,7 +418,7 @@ export class Game {
   }
 
   private triggerGameOver(): void {
-    this.state = 'gameover';
+    this.state = 'gameover'; this.paused = false; this.audio.stopPulse();
     this.audio.playCrash();
     this.sceneManager.triggerShake(0.65);
 
@@ -434,7 +433,7 @@ export class Game {
       bestScore: this.bestScore,
       distance: Math.floor(this.distance),
       nearMisses: this.nearMisses,
-      maxSpeed: Math.round(this.speed),
+      speedMultiplier: Number((this.speed / BASE_SPEED).toFixed(2)),
     };
 
     this.finalScoreEl.textContent = stats.score.toLocaleString();
@@ -454,11 +453,11 @@ export class Game {
   }
 
   private updateActivePowerUps(dt: number): void {
-    this.activePowerUps.shieldRemaining = Math.max(0, this.activePowerUps.shieldRemaining - dt);
-    this.activePowerUps.multiplierRemaining = Math.max(0, this.activePowerUps.multiplierRemaining - dt);
-    this.activePowerUps.slowMoRemaining = Math.max(0, this.activePowerUps.slowMoRemaining - dt);
+    this.activePowerUps.shield = Math.max(0, this.activePowerUps.shield - dt);
+    this.activePowerUps.double = Math.max(0, this.activePowerUps.double - dt);
+    this.activePowerUps.slowmo = Math.max(0, this.activePowerUps.slowmo - dt);
 
-    const shieldActive = this.activePowerUps.shieldRemaining > 0;
+    const shieldActive = this.activePowerUps.shield > 0;
     this.shieldMesh.visible = shieldActive;
     if (shieldActive) {
       this.shieldMesh.rotation.y += dt * 2.5;
@@ -466,12 +465,12 @@ export class Game {
     }
 
     const badges: string[] = [];
-    if (shieldActive) badges.push(`SHIELD ${this.activePowerUps.shieldRemaining.toFixed(1)}s`);
-    if (this.activePowerUps.multiplierRemaining > 0) {
-      badges.push(`2X SCORE ${this.activePowerUps.multiplierRemaining.toFixed(1)}s`);
+    if (shieldActive) badges.push(`SHIELD ${this.activePowerUps.shield.toFixed(1)}s`);
+    if (this.activePowerUps.double > 0) {
+      badges.push(`2X SCORE ${this.activePowerUps.double.toFixed(1)}s`);
     }
-    if (this.activePowerUps.slowMoRemaining > 0) {
-      badges.push(`SLOW-MO ${this.activePowerUps.slowMoRemaining.toFixed(1)}s`);
+    if (this.activePowerUps.slowmo > 0) {
+      badges.push(`SLOW-MO ${this.activePowerUps.slowmo.toFixed(1)}s`);
     }
     this.powerUpBadgesEl.innerHTML = badges.map((b) => `<span class="badge">${b}</span>`).join('');
   }
@@ -490,17 +489,17 @@ export class Game {
 
     this.updateSparks(rawDt);
 
-    if (this.state === 'playing') {
+    if (this.state === 'playing' && !this.paused) {
       this.runTime += rawDt;
       this.updateActivePowerUps(rawDt);
 
-      const timeScale = this.activePowerUps.slowMoRemaining > 0 ? 0.62 : 1;
+      const timeScale = this.activePowerUps.slowmo > 0 ? 0.62 : 1;
       const dt = rawDt * timeScale;
 
       const difficulty = Math.min(1, this.runTime / 75);
       this.speed = Math.min(MAX_SPEED, BASE_SPEED + difficulty * (MAX_SPEED - BASE_SPEED));
 
-      const steer = this.inputManager.getSteerAxis();
+      const steer = this.input.getSteerInput();
       this.playerAngle += steer * (2.85 + difficulty * 0.65) * rawDt;
       this.updatePlayerPosition(steer);
 
@@ -517,7 +516,7 @@ export class Game {
         difficulty,
         this.playerAngle,
         PLAYER_ORBIT_RADIUS,
-        this.activePowerUps.shieldRemaining > 0
+        this.activePowerUps.shield > 0
       );
 
       if (obsResult.hit) {
@@ -529,7 +528,7 @@ export class Game {
           this.combo = Math.min(8, this.combo + 1);
           this.comboTimer = 4.0;
           this.score += 120 * this.combo;
-          this.audio.playNearMiss();
+          this.audio.playNearMiss(this.combo);
           this.sceneManager.triggerShake(0.14);
           this.spawnSparkBurst(this.playerGroup.position, 0x00f0ff, 22, 1.0);
         }
@@ -544,14 +543,14 @@ export class Game {
         const collected = this.powerUps.update(this.speed, dt, this.playerAngle, PLAYER_ORBIT_RADIUS);
         if (collected) {
           this.audio.playPowerUp();
-          const pColor = collected === 'shield' ? 0x38bdf8 : collected === 'multiplier' ? 0xfacc15 : 0xa855f7;
+          const pColor = collected === 'shield' ? 0x38bdf8 : collected === 'double' ? 0xfacc15 : 0xa855f7;
           this.spawnSparkBurst(this.playerGroup.position, pColor, 28, 1.15);
-          if (collected === 'shield') this.activePowerUps.shieldRemaining = 7.0;
-          if (collected === 'multiplier') this.activePowerUps.multiplierRemaining = 8.0;
-          if (collected === 'slowmo') this.activePowerUps.slowMoRemaining = 5.0;
+          if (collected === 'shield') this.activePowerUps.shield = 7.0;
+          if (collected === 'double') this.activePowerUps.double = 8.0;
+          if (collected === 'slowmo') this.activePowerUps.slowmo = 5.0;
         }
 
-        const scoreMultiplier = this.activePowerUps.multiplierRemaining > 0 ? 2 : 1;
+        const scoreMultiplier = this.activePowerUps.double > 0 ? 2 : 1;
         this.distance += this.speed * dt;
         this.score += (this.speed * dt * 1.4 + obsResult.passedCount * 25) * this.combo * scoreMultiplier;
 
@@ -586,7 +585,7 @@ export class Game {
   public dispose(): void {
     cancelAnimationFrame(this.rafId);
     window.removeEventListener('keydown', this.handleGlobalKeyDown);
-    this.inputManager.dispose();
+    this.input.dispose();
     this.sceneManager.dispose();
   }
 }
