@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>NEON TUNNEL // Endless Runner</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud" class="hud hidden">
+      <div class="hud-top">
+        <div class="hud-stat">
+          <span class="hud-label">SCORE</span>
+          <span id="score-value" class="hud-value">0</span>
+        </div>
+        <div class="hud-center">
+          <div id="theme-badge" class="theme-badge">CYBER CYAN</div>
+          <div id="combo-display" class="combo-display hidden">NEAR MISS x1</div>
+        </div>
+        <div class="hud-stat hud-right">
+          <span class="hud-label">SPEED</span>
+          <span id="speed-value" class="hud-value">1.0x</span>
+        </div>
+      </div>
+      <div class="hud-bottom">
+        <div id="powerup-indicators" class="powerup-indicators"></div>
+        <div class="hud-controls-bar">
+          <span id="multiplier-value" class="multiplier-pill">1x</span>
+          <button id="mute-btn" class="icon-btn" type="button" aria-label="Toggle Audio">SFX: ON</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="start-screen" class="overlay">
+      <div class="panel">
+        <div class="eyebrow">ENDLESS 3D TUNNEL RUNNER</div>
+        <h1 class="title">NEON<span>TUNNEL</span></h1>
+        <p class="subtitle">Dodge geometric hazards, graze obstacles for near-miss combos, and grab power-ups at warp speed.</p>
+
+        <div class="section-label">SELECT TUNNEL THEME</div>
+        <div id="theme-selector" class="theme-grid"></div>
+
+        <div class="best-bar">
+          <span>HIGH SCORE</span>
+          <strong id="best-score-display">0</strong>
+        </div>
+
+        <button id="start-btn" class="primary-btn" type="button">LAUNCH RUN</button>
+
+        <div class="controls-hint">
+          <span><strong>A / D</strong> or <strong>← / →</strong> to steer</span>
+          <span><strong>Touch &amp; Hold / Drag</strong> on mobile</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="gameover-screen" class="overlay hidden">
+      <div class="panel">
+        <div class="eyebrow danger">SYSTEM COLLISION</div>
+        <h2 class="title small">RUN TERMINATED</h2>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">SCORE</span>
+            <strong id="final-score" class="stat-num">0</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">BEST</span>
+            <strong id="final-best" class="stat-num">0</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">DISTANCE</span>
+            <strong id="final-distance" class="stat-num">0m</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">NEAR MISSES</span>
+            <strong id="final-near-misses" class="stat-num">0</strong>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button id="restart-btn" class="primary-btn" type="button">PLAY AGAIN</button>
+          <button id="menu-btn" class="secondary-btn" type="button">THEMES</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
