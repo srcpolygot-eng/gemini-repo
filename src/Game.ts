@@ -81,7 +81,7 @@ export class Game {
   };
 
   private readonly startOverlay: HTMLElement;
-  private readonly pauseOverlay: HTMLElement;
+  private readonly pauseOverlay: HTMLElement | null;
   private readonly gameOverOverlay: HTMLElement;
   private readonly hudEl: HTMLElement;
   private readonly scoreValueEl: HTMLElement;
@@ -166,20 +166,20 @@ export class Game {
     sparkPoints.frustumCulled = false;
     this.sceneManager.scene.add(sparkPoints);
 
-    this.startOverlay = getRequiredEl('start-overlay');
-    this.pauseOverlay = getRequiredEl('pause-overlay');
-    this.gameOverOverlay = getRequiredEl('gameover-overlay');
+    this.startOverlay = getRequiredEl('start-screen');
+    this.pauseOverlay = document.getElementById('pause-overlay');
+    this.gameOverOverlay = getRequiredEl('gameover-screen');
     this.hudEl = getRequiredEl('hud');
-    this.scoreValueEl = getRequiredEl('hud-score');
-    this.bestValueEl = getRequiredEl('hud-best');
-    this.speedValueEl = getRequiredEl('hud-speed');
-    this.comboValueEl = getRequiredEl('hud-combo');
-    this.powerUpBadgesEl = getRequiredEl('hud-powerups');
+    this.scoreValueEl = getRequiredEl('score-value');
+    this.bestValueEl = getRequiredEl('best-score-display');
+    this.speedValueEl = getRequiredEl('speed-value');
+    this.comboValueEl = getRequiredEl('combo-display');
+    this.powerUpBadgesEl = getRequiredEl('powerup-indicators');
     this.finalScoreEl = getRequiredEl('final-score');
     this.finalBestEl = getRequiredEl('final-best');
     this.finalDistanceEl = getRequiredEl('final-distance');
-    this.finalNearMissEl = getRequiredEl('final-nearmiss');
-    this.muteButton = getRequiredEl<HTMLButtonElement>('btn-mute');
+    this.finalNearMissEl = getRequiredEl('final-near-misses');
+    this.muteButton = getRequiredEl<HTMLButtonElement>('mute-btn');
     this.themeButtons = document.querySelectorAll<HTMLButtonElement>('[data-theme]');
 
     this.bindUiEvents();
@@ -312,10 +312,10 @@ export class Game {
   }
 
   private bindUiEvents(): void {
-    getRequiredEl('btn-start').addEventListener('click', () => this.startRun());
-    getRequiredEl('btn-restart').addEventListener('click', () => this.startRun());
-    getRequiredEl('btn-resume').addEventListener('click', () => this.resumeRun());
-    getRequiredEl('btn-quit').addEventListener('click', () => this.returnToMenu());
+    getRequiredEl('start-btn').addEventListener('click', () => this.startRun());
+    getRequiredEl('restart-btn').addEventListener('click', () => this.startRun());
+    document.getElementById('btn-resume')?.addEventListener('click', () => this.resumeRun());
+    getRequiredEl('menu-btn').addEventListener('click', () => this.returnToMenu());
 
     this.muteButton.addEventListener('click', () => {
       this.muted = !this.muted;
@@ -388,7 +388,7 @@ export class Game {
     this.obstacles.reset();
     this.powerUps.reset();
     this.startOverlay.classList.add('hidden');
-    this.pauseOverlay.classList.add('hidden');
+    this.pauseOverlay?.classList.add('hidden');
     this.gameOverOverlay.classList.add('hidden');
     this.hudEl.classList.remove('hidden');
     this.updateHud();
@@ -397,13 +397,13 @@ export class Game {
   private pauseRun(): void {
     if (this.state !== 'playing') return;
     this.paused = true; this.audio.stopPulse();
-    this.pauseOverlay.classList.remove('hidden');
+    this.pauseOverlay?.classList.remove('hidden');
   }
 
   private resumeRun(): void {
     if (!this.paused) return;
     this.state = 'playing'; this.paused = false;
-    this.pauseOverlay.classList.add('hidden');
+    this.pauseOverlay?.classList.add('hidden');
     this.lastFrameTime = performance.now();
   }
 
@@ -411,7 +411,7 @@ export class Game {
     this.state = 'menu'; this.paused = false; this.audio.stopPulse();
     this.obstacles.reset();
     this.powerUps.reset();
-    this.pauseOverlay.classList.add('hidden');
+    this.pauseOverlay?.classList.add('hidden');
     this.gameOverOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.startOverlay.classList.remove('hidden');
