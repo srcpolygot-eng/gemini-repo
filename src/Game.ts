@@ -55,6 +55,7 @@ export class Game {
 
   private state: GameState = 'menu'; private paused = false; public start(): void { if (!this.rafId) { this.rafId = requestAnimationFrame(this.loop); } }
   private currentTheme: TunnelTheme = THEMES['cyber-cyan'];
+private runStartThemeIndex = 0;
   private playerAngle = -Math.PI / 2;
   private speed = BASE_SPEED;
   private score = 0;
@@ -269,7 +270,9 @@ export class Game {
     this.tunnel.applyTheme(this.currentTheme);
     this.obstacles.applyTheme(this.currentTheme);
     this.runner.applyTheme(this.currentTheme);
-
+    document.documentElement.style.setProperty('--accent', this.currentTheme.accentCss);
+    document.documentElement.style.setProperty('--secondary', this.currentTheme.secondaryCss);
+    
     this.themeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.theme === themeId);
     });
@@ -301,6 +304,8 @@ export class Game {
     this.gameOverOverlay.classList.add('hidden');
     this.hudEl.classList.remove('hidden');
     this.updateHud();
+    this.runStartThemeIndex = Math.max(0, THEME_LIST.findIndex((theme) => theme.id === this.currentTheme.id));
+    this.applyTheme(this.currentTheme.id);
   }
 
   private pauseRun(): void {
@@ -457,7 +462,7 @@ export class Game {
         this.distance += this.speed * dt;
         this.score += (this.speed * dt * 1.4 + obsResult.passedCount * 25) * this.combo * scoreMultiplier;
 
-        const themeIndex = Math.floor(this.runTime / 28) % THEME_LIST.length;
+        const themeIndex = (this.runStartThemeIndex + Math.floor(this.runTime / 28)) % THEME_LIST.length;
         const targetTheme = THEME_LIST[themeIndex];
         if (targetTheme.id !== this.currentTheme.id) {
           this.applyTheme(targetTheme.id);
