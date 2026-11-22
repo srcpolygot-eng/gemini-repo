@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SynthAudio } from './audio/SynthAudio';
 import { THEME_LIST, THEMES } from './config/themes';
 import { InputManager } from './engine/InputManager';
+import { RunnerModel } from './entities/RunnerModel';
 import { SceneManager } from './engine/SceneManager';
 import { ActivePowerUps, GameState, RunStats, ThemeId, TunnelTheme } from './types/game';
 import { ObstacleManager } from './world/ObstacleManager';
@@ -45,14 +46,7 @@ export class Game {
   private readonly powerUps: PowerUpManager;
   private readonly audio: SynthAudio;
 
-  private readonly playerGroup = new THREE.Group();
-  private readonly shipMaterial: THREE.MeshStandardMaterial;
-  private readonly cockpitMaterial: THREE.MeshBasicMaterial;
-  private readonly shipEdgeMaterial: THREE.LineBasicMaterial;
-  private readonly thrusterMaterial: THREE.MeshBasicMaterial;
-  private readonly shieldMesh: THREE.Mesh;
-  private thrusterLeft!: THREE.Mesh;
-  private thrusterRight!: THREE.Mesh;
+  private runner: RunnerModel;
 
   private readonly sparkGeo: THREE.BufferGeometry;
   private readonly sparkPositions: Float32Array;
@@ -94,7 +88,7 @@ export class Game {
   private readonly finalDistanceEl: HTMLElement;
   private readonly finalNearMissEl: HTMLElement;
   private readonly muteButton: HTMLButtonElement;
-  private readonly themeButtons: NodeListOf<HTMLButtonElement>;
+  private themeButtons: HTMLButtonElement[] = [];
 
   constructor(container?: HTMLElement) {
     this.bestScore = Number(localStorage.getItem(BEST_SCORE_KEY) || '0') || 0;
@@ -106,48 +100,9 @@ export class Game {
     this.powerUps = new PowerUpManager(this.sceneManager.scene);
     this.audio = new SynthAudio();
 
-    this.shipMaterial = new THREE.MeshStandardMaterial({
-      color: this.currentTheme.playerColorHex,
-      emissive: this.currentTheme.playerColorHex,
-      emissiveIntensity: 0.75,
-      roughness: 0.25,
-      metalness: 0.7,
-    });
-
-    this.cockpitMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.95,
-    });
-
-    this.shipEdgeMaterial = new THREE.LineBasicMaterial({
-      color: this.currentTheme.ringColorHex,
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-    });
-
-    this.thrusterMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-
-    this.shieldMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1.15, 20, 16),
-      new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.45,
-      })
-    );
-    this.shieldMesh.visible = false;
-
-    this.buildPlayerShip();
-    this.sceneManager.scene.add(this.playerGroup);
+    this.runner = new RunnerModel(this.currentTheme);
+    this.sceneManager.scene.add(this.runner.group);
+    this.runner.setShieldVisible(false);
 
     this.sparkPositions = new Float32Array(MAX_SPARKS * 3);
     this.sparkColors = new Float32Array(MAX_SPARKS * 3);
@@ -180,78 +135,44 @@ export class Game {
     this.finalDistanceEl = getRequiredEl('final-distance');
     this.finalNearMissEl = getRequiredEl('final-near-misses');
     this.muteButton = getRequiredEl<HTMLButtonElement>('mute-btn');
-    this.themeButtons = document.querySelectorAll<HTMLButtonElement>('[data-theme]');
-
+    this.renderThemeSelector();
     this.bindUiEvents();
-    this.applyTheme('cyber-cyan');
+    const savedTheme = localStorage.getItem('neon_tunnel_theme') as ThemeId | null;
+    this.applyTheme(savedTheme && THEMES[savedTheme] ? savedTheme : 'cyber-cyan');
+  }
+
+  private renderThemeSelector(): void {
+    const container = document.getElementById('theme-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    const buttons: HTMLButtonElement[] = [];
+    for (const theme of THEME_LIST) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'theme-card';
+      btn.dataset.theme = theme.id;
+      const dot = document.createElement('span');
+      dot.className = 'theme-dot';
+      const colorHex = '#' + theme.playerColorHex.toString(16).padStart(6, '0');
+      dot.style.backgroundColor = colorHex;
+      dot.style.boxShadow = '0 0 10px ' + colorHex;
+      const label = document.createElement('span');
+      label.textContent = theme.name;
+      btn.appendChild(dot);
+      btn.appendChild(label);
+      btn.addEventListener('click', () => {
+        this.applyTheme(theme.id);
+        localStorage.setItem('neon_tunnel_theme', theme.id);
+      });
+      container.appendChild(btn);
+      buttons.push(btn);
+    }
+    this.themeButtons = buttons;
     this.updatePlayerPosition(0);
     this.updateHud();
   }
 
-  private addShipEdge(mesh: THREE.Mesh, geo: THREE.BufferGeometry): void {
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 18), this.shipEdgeMaterial);
-    edges.scale.setScalar(1.015);
-    mesh.add(edges);
-  }
-
-  private buildPlayerShip(): void {
-    const bodyGeo = new THREE.ConeGeometry(0.32, 1.85, 6);
-    bodyGeo.rotateX(-Math.PI / 2);
-    const body = new THREE.Mesh(bodyGeo, this.shipMaterial);
-    this.addShipEdge(body, bodyGeo);
-    this.playerGroup.add(body);
-
-    const cockpitGeo = new THREE.SphereGeometry(0.18, 12, 10);
-    cockpitGeo.scale(0.85, 0.55, 1.9);
-    const cockpit = new THREE.Mesh(cockpitGeo, this.cockpitMaterial);
-    cockpit.position.set(0, 0.14, -0.2);
-    this.playerGroup.add(cockpit);
-
-    const noseGeo = new THREE.ConeGeometry(0.08, 0.36, 6);
-    noseGeo.rotateX(-Math.PI / 2);
-    const nose = new THREE.Mesh(noseGeo, this.cockpitMaterial);
-    nose.position.set(0, 0, -1.04);
-    this.playerGroup.add(nose);
-
-    const wingGeo = new THREE.BoxGeometry(1.15, 0.05, 0.52);
-    const leftWing = new THREE.Mesh(wingGeo, this.shipMaterial);
-    leftWing.position.set(-0.58, -0.04, 0.24);
-    leftWing.rotation.set(0, 0.48, 0.12);
-    this.addShipEdge(leftWing, wingGeo);
-    this.playerGroup.add(leftWing);
-
-    const rightWing = new THREE.Mesh(wingGeo, this.shipMaterial);
-    rightWing.position.set(0.58, -0.04, 0.24);
-    rightWing.rotation.set(0, -0.48, -0.12);
-    this.addShipEdge(rightWing, wingGeo);
-    this.playerGroup.add(rightWing);
-
-    const finGeo = new THREE.BoxGeometry(0.05, 0.36, 0.36);
-    const leftFin = new THREE.Mesh(finGeo, this.shipMaterial);
-    leftFin.position.set(-0.24, 0.16, 0.58);
-    leftFin.rotation.z = 0.25;
-    this.addShipEdge(leftFin, finGeo);
-    this.playerGroup.add(leftFin);
-
-    const rightFin = new THREE.Mesh(finGeo, this.shipMaterial);
-    rightFin.position.set(0.24, 0.16, 0.58);
-    rightFin.rotation.z = -0.25;
-    this.addShipEdge(rightFin, finGeo);
-    this.playerGroup.add(rightFin);
-
-    const thrusterGeo = new THREE.ConeGeometry(0.11, 0.52, 8);
-    thrusterGeo.rotateX(Math.PI / 2);
-    this.thrusterLeft = new THREE.Mesh(thrusterGeo, this.thrusterMaterial);
-    this.thrusterLeft.position.set(-0.22, -0.02, 0.96);
-    this.playerGroup.add(this.thrusterLeft);
-
-    this.thrusterRight = new THREE.Mesh(thrusterGeo, this.thrusterMaterial);
-    this.thrusterRight.position.set(0.22, -0.02, 0.96);
-    this.playerGroup.add(this.thrusterRight);
-
-    this.playerGroup.add(this.shieldMesh);
-  }
-
+  
   private spawnSparkBurst(origin: THREE.Vector3, colorHex: number, count: number, speedScale = 1): void {
     const color = new THREE.Color(colorHex);
     for (let i = 0; i < count; i++) {
@@ -323,15 +244,6 @@ export class Game {
       this.muteButton.textContent = this.muted ? 'Audio: OFF' : 'Audio: ON';
     });
 
-    this.themeButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const themeId = btn.dataset.theme as ThemeId | undefined;
-        if (themeId && THEMES[themeId]) {
-          this.applyTheme(themeId);
-        }
-      });
-    });
-
     window.addEventListener('keydown', this.handleGlobalKeyDown);
   }
 
@@ -356,10 +268,7 @@ export class Game {
     this.sceneManager.applyTheme(this.currentTheme);
     this.tunnel.applyTheme(this.currentTheme);
     this.obstacles.applyTheme(this.currentTheme);
-    this.shipMaterial.color.setHex(this.currentTheme.playerColorHex);
-    this.shipMaterial.emissive.setHex(this.currentTheme.playerColorHex);
-    this.shipEdgeMaterial.color.setHex(this.currentTheme.ringColorHex);
-    this.thrusterMaterial.color.setHex(this.currentTheme.ringColorHex);
+    this.runner.applyTheme(this.currentTheme);
 
     this.themeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.theme === themeId);
@@ -449,8 +358,8 @@ export class Game {
   private updatePlayerPosition(steerInput: number): void {
     const x = Math.cos(this.playerAngle) * PLAYER_ORBIT_RADIUS;
     const y = Math.sin(this.playerAngle) * PLAYER_ORBIT_RADIUS;
-    this.playerGroup.position.set(x, y, PLAYER_Z);
-    this.playerGroup.rotation.z = this.playerAngle + Math.PI / 2 - steerInput * 0.36;
+    this.runner.group.position.set(x, y, PLAYER_Z);
+    this.runner.group.rotation.z = this.playerAngle + Math.PI / 2 - steerInput * 0.36;
   }
 
   private updateActivePowerUps(dt: number): void {
@@ -459,11 +368,7 @@ export class Game {
     this.activePowerUps.slowmo = Math.max(0, this.activePowerUps.slowmo - dt);
 
     const shieldActive = this.activePowerUps.shield > 0;
-    this.shieldMesh.visible = shieldActive;
-    if (shieldActive) {
-      this.shieldMesh.rotation.y += dt * 2.5;
-      this.shieldMesh.rotation.x += dt * 1.4;
-    }
+    this.runner.setShieldVisible(this.activePowerUps.shield > 0);
 
     const badges: string[] = [];
     if (shieldActive) badges.push(`SHIELD ${this.activePowerUps.shield.toFixed(1)}s`);
@@ -505,10 +410,7 @@ export class Game {
       this.updatePlayerPosition(steer);
 
       const speedRatio = (this.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
-      const thrusterPulse = 0.85 + speedRatio * 0.75 + Math.sin(now * 0.04) * 0.18;
-      this.thrusterLeft.scale.set(1, 1, thrusterPulse);
-      this.thrusterRight.scale.set(1, 1, thrusterPulse);
-      this.thrusterMaterial.opacity = 0.7 + speedRatio * 0.28;
+      this.runner.update(rawDt, steer, speedRatio);
 
       this.tunnel.update(this.speed, dt);
       const obsResult = this.obstacles.update(
@@ -521,7 +423,7 @@ export class Game {
       );
 
       if (obsResult.hit) {
-        this.spawnSparkBurst(this.playerGroup.position, 0xff3366, 55, 1.65);
+        this.spawnSparkBurst(this.runner.group.position, 0xff3366, 55, 1.65);
         this.triggerGameOver();
       } else {
         if (obsResult.nearMiss) {
@@ -531,7 +433,7 @@ export class Game {
           this.score += 120 * this.combo;
           this.audio.playNearMiss(this.combo);
           this.sceneManager.triggerShake(0.14);
-          this.spawnSparkBurst(this.playerGroup.position, 0x00f0ff, 22, 1.0);
+          this.spawnSparkBurst(this.runner.group.position, 0x00f0ff, 22, 1.0);
         }
 
         if (this.comboTimer > 0) {
@@ -545,7 +447,7 @@ export class Game {
         if (collected) {
           this.audio.playPowerUp();
           const pColor = collected === 'shield' ? 0x38bdf8 : collected === 'double' ? 0xfacc15 : 0xa855f7;
-          this.spawnSparkBurst(this.playerGroup.position, pColor, 28, 1.15);
+          this.spawnSparkBurst(this.runner.group.position, pColor, 28, 1.15);
           if (collected === 'shield') this.activePowerUps.shield = 7.0;
           if (collected === 'double') this.activePowerUps.double = 8.0;
           if (collected === 'slowmo') this.activePowerUps.slowmo = 5.0;
@@ -562,8 +464,8 @@ export class Game {
         }
 
         this.sceneManager.updateCamera(
-          this.playerGroup.position.x,
-          this.playerGroup.position.y,
+          this.runner.group.position.x,
+          this.runner.group.position.y,
           steer,
           rawDt,
           speedRatio
@@ -574,10 +476,8 @@ export class Game {
       this.tunnel.update(28, rawDt);
       this.playerAngle = -Math.PI / 2 + Math.sin(now * 0.0012) * 0.35;
       this.updatePlayerPosition(Math.cos(now * 0.0012) * 0.4);
-      const idlePulse = 0.8 + Math.sin(now * 0.03) * 0.12;
-      this.thrusterLeft.scale.set(1, 1, idlePulse);
-      this.thrusterRight.scale.set(1, 1, idlePulse);
-      this.sceneManager.updateCamera(this.playerGroup.position.x, this.playerGroup.position.y, 0, rawDt, 0);
+      this.runner.update(rawDt, Math.cos(now * 0.0012) * 0.4, 0.25);
+      this.sceneManager.updateCamera(this.runner.group.position.x, this.runner.group.position.y, 0, rawDt, 0);
     }
 
     this.sceneManager.render();
