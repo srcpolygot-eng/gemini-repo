@@ -2,7 +2,7 @@ import type * as THREE from 'three';
 
 export type GameState = 'menu' | 'playing' | 'gameover';
 
-export type ThemeId = 'cyber-cyan' | 'synthwave' | 'toxic-grid' | 'solar-flare';
+export type ThemeId = 'cyber-cyan' | 'synthwave' | 'toxic-grid' | 'solar-flare' | 'crimson-pulse' | 'arctic-prism' | 'void-violet' | 'gold-rush' | 'emerald-vapor' | 'plasma-core';
 
 export interface TunnelTheme {
   id: ThemeId;
